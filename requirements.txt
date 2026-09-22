@@ -1,0 +1,11 @@
+Flask
+langchain-chroma
+langchain-core
+langchain-ollama
+openpyxl
+pdfplumber
+playwright
+playwright-stealth
+python-dotenv
+pymongo
+requests
