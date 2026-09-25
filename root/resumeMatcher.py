@@ -6,7 +6,7 @@ from langchain_ollama import ChatOllama
 
 from config import G_CUTOFF_SCORE, G_DATA_PATH, G_MODEL
 
-def extract_resume_text(pdf_path=f"{G_DATA_PATH}/karthick_resume_v02.pdf"):
+def extract_resume_text(pdf_path=f"{G_DATA_PATH}/resume.pdf"):
     text = []
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:

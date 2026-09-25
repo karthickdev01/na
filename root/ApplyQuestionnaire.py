@@ -11,8 +11,6 @@ from pymongo import MongoClient
 from config import G_DATA_PATH, G_MODEL
 
 DrawerSelector = "div.chatbot_Drawer:visible"
-AcceptedCities = ["Pune", "Hyderabad", "Kochi", "Bangalore", "Chennai"]
-
 
 def GetVectorStore():
     ChromaPath = os.path.abspath(os.path.join(os.path.dirname(G_DATA_PATH), "chroma"))
@@ -26,12 +24,41 @@ def GetVectorStore():
     )
     return VectorStore
 
-
 def GetCurrentQuestion(Drawer):
     QuestionMessages = Drawer.locator(".botMsg:visible")
     if QuestionMessages.count() == 0:
-        return ""
-    return QuestionMessages.last.inner_text().strip()
+        return "", []
+
+    QuestionText = QuestionMessages.last.inner_text().strip()
+
+    Options = []
+
+    ChoiceInputs = Drawer.locator("input[type='checkbox']:visible, input[type='radio']:visible")
+    if ChoiceInputs.count() > 0:
+        for ChoiceIndex in range(ChoiceInputs.count()):
+            ChoiceInput = ChoiceInputs.nth(ChoiceIndex)
+            ChoiceId = ChoiceInput.get_attribute("id")
+            ChoiceLabel = (
+                Drawer.locator(f"label[for='{ChoiceId}']").first
+                if ChoiceId
+                else ChoiceInput.locator("xpath=ancestor::label[1]")
+            )
+            if ChoiceLabel.count() > 0:
+                LabelText = " ".join(ChoiceLabel.inner_text().split()).strip()
+                if LabelText:
+                    Options.append(LabelText)
+        return QuestionText, Options
+
+    SelectField = Drawer.locator("select:visible")
+    if SelectField.count() > 0:
+        OptionElements = SelectField.first.locator("option")
+        for OptionIndex in range(OptionElements.count()):
+            OptionText = OptionElements.nth(OptionIndex).inner_text().strip()
+            if OptionText:
+                Options.append(OptionText)
+        return QuestionText, Options
+
+    return QuestionText, Options
 
 
 def StoreAnswer(VectorStore, Question, Answer, Source):
@@ -61,43 +88,41 @@ def StoreAnswer(VectorStore, Question, Answer, Source):
     )
 
 
-def GetAnswer(Question, VectorStore, LanguageModel, Drawer):
-    if "relocat" in Question.lower() or "city" in Question.lower():
-        Options = Drawer.locator("label:visible, [role='option']:visible")
-        OptionTexts = [
-            " ".join(Options.nth(Index).inner_text().lower().split())
-            for Index in range(Options.count())
-        ]
-        AnywhereOption = next(
-            (
-                Options.nth(Index).inner_text().strip()
-                for Index, OptionText in enumerate(OptionTexts)
-                if "anywhere in india" in OptionText
-                or "any location in india" in OptionText
-            ),
-            None,
-        )
-        Answer = AnywhereOption or AcceptedCities
-        StoreAnswer(VectorStore, Question, json.dumps(Answer), "profile")
-        return Answer
-
+def GetAnswer(Question, Options, VectorStore, LanguageModel, Drawer):
     ContextDocuments = VectorStore.similarity_search(Question, k=5)
     Context = "\n\n".join(
         ContextDocument.page_content for ContextDocument in ContextDocuments
     )
+
+    OptionsBlock = ""
+    if Options:
+        OptionsBlock = (
+            "This question has a fixed set of choices. Pick exactly one and return "
+            "its text exactly as written below — do not paraphrase or invent a new option.\n"
+            + "\n".join(f"- {Option}" for Option in Options)
+            + "\n"
+        )
+
     Prompt = (
         "Answer this job application question using only the context. "
         'Return JSON only: {"answer": "text", "confidence": 0.0}. '
         "Return UNKNOWN when the context is insufficient.\n"
+        f"{OptionsBlock}"
         f"Context:\n{Context}\nQuestion:\n{Question}"
     )
+
     Answer = ""
     try:
         ModelText = LanguageModel.invoke(Prompt).content.strip()
         ModelText = ModelText.removeprefix("```json").removesuffix("```").strip()
         ModelAnswer = json.loads(ModelText)
         if float(ModelAnswer.get("confidence", 0)) >= 0.8:
-            Answer = str(ModelAnswer.get("answer", "")).strip()
+            RawAnswer = str(ModelAnswer.get("answer", "")).strip()
+            if Options:
+                NormalizedOptions = {Option.strip().lower(): Option for Option in Options}
+                Answer = NormalizedOptions.get(RawAnswer.strip().lower(), "")
+            else:
+                Answer = RawAnswer
     except Exception:
         pass
 
@@ -106,73 +131,42 @@ def GetAnswer(Question, VectorStore, LanguageModel, Drawer):
         return Answer
 
     print(f"\nQuestion: {Question}")
-    Options = Drawer.locator("label:visible, [role='option']:visible")
-    for OptionIndex in range(Options.count()):
-        print(f"{OptionIndex}: {Options.nth(OptionIndex).inner_text().strip()}")
-    Answer = input("Enter answer: ").strip()
+    if Options:
+        for OptionIndex, OptionText in enumerate(Options):
+            print(f"{OptionIndex}: {OptionText}")
+        RawInput = input("Enter option number (or type a custom answer): ").strip()
+        if RawInput.isdigit() and 0 <= int(RawInput) < len(Options):
+            Answer = Options[int(RawInput)]
+        else:
+            Answer = RawInput
+    else:
+        Answer = input("Enter answer: ").strip()
+
     if Answer:
         StoreAnswer(VectorStore, Question, Answer, "terminal")
     return Answer
-
 
 def FillCurrentAnswer(Drawer, Answer):
     Answers = Answer if isinstance(Answer, (list, tuple, set)) else [Answer]
     NormalizedAnswers = [" ".join(str(Item).lower().split()) for Item in Answers]
 
-    ChoiceInputs = Drawer.locator(
-        "input[type='checkbox'], input[type='radio']"
-    )
+    ChoiceInputs = Drawer.locator("input[type='checkbox'], input[type='radio']")
     if ChoiceInputs.count() > 0:
-        FoundAny = False
-        for ChoiceIndex in range(ChoiceInputs.count()):
-            ChoiceInput = ChoiceInputs.nth(ChoiceIndex)
-            ChoiceId = ChoiceInput.get_attribute("id")
-            ChoiceLabel = (
-                Drawer.locator(f"label[for='{ChoiceId}']").first
-                if ChoiceId
-                else ChoiceInput.locator("xpath=ancestor::label[1]")
-            )
-            ChoiceText = (
-                " ".join(ChoiceLabel.inner_text().lower().split())
-                if ChoiceLabel.count() > 0
-                else ""
-            )
-            IsMatch = any(
-                Value == ChoiceText
-                or Value in ChoiceText
-                or ChoiceText in Value
-                or (Value == "bangalore" and "bengaluru" in ChoiceText)
-                for Value in NormalizedAnswers
-            )
-            if IsMatch:
-                if ChoiceLabel.count() > 0 and ChoiceLabel.is_visible():
-                    ChoiceLabel.click(force=True)
-                    FoundAny = True
-                elif not ChoiceInput.is_checked():
-                    try:
-                        ChoiceInput.check(force=True)
-                        FoundAny = True
-                    except Exception:
-                        MatchingText = Drawer.get_by_text(
-                            str(Answers[0]), exact=False
-                        ).last
-                        if MatchingText.count() > 0 and MatchingText.is_visible():
-                            MatchingText.click(force=True)
-                            FoundAny = True
-        if FoundAny:
-            time.sleep(1)
-        return FoundAny
-
-    CustomOption = Drawer.locator(
-        "[role='option']:visible, [role='radio']:visible, [role='checkbox']:visible"
-    )
-    for OptionIndex in range(CustomOption.count()):
-        Option = CustomOption.nth(OptionIndex)
-        OptionText = " ".join(Option.inner_text().lower().split())
-        if any(Value == OptionText or Value in OptionText for Value in NormalizedAnswers):
-            Option.click()
-            time.sleep(1)
-            return True
+        ChoiceInput = Drawer.locator(f"input[type='radio'][id='{Answer}'], input[type='checkbox'][id='{Answer}']").first
+        if ChoiceInput.count() == 0:
+            return False
+        ChoiceLabel = Drawer.locator(f"label[for='{Answer}']").first
+        if ChoiceLabel.count() > 0:
+            ChoiceLabel.click(force=True)
+        else:
+            ChoiceInput.dispatch_event("click")
+        ChoiceInput.evaluate(
+            "el => { el.checked = true; "
+            "el.dispatchEvent(new Event('input', { bubbles: true })); "
+            "el.dispatchEvent(new Event('change', { bubbles: true })); }"
+        )
+        time.sleep(3)
+        return True
 
     AnswerField = Drawer.locator(
         "input:visible, textarea:visible, select:visible, "
@@ -184,7 +178,6 @@ def FillCurrentAnswer(Drawer, Answer):
         return False
 
     TagName = AnswerField.evaluate("el => el.tagName.toLowerCase()")
-
     InputType = AnswerField.get_attribute("type") or ""
     IsContentEditable = AnswerField.get_attribute("contenteditable")
 
@@ -201,9 +194,8 @@ def FillCurrentAnswer(Drawer, Answer):
     else:
         AnswerField.fill(str(Answer))
 
-    time.sleep(1)
+    time.sleep(3)
     return True
-
 
 def SaveCurrentAnswer(Page, Drawer):
     SaveButton = Drawer.get_by_role("button", name="Save", exact=True).last
@@ -214,7 +206,6 @@ def SaveCurrentAnswer(Page, Drawer):
     SaveButton.click()
     Page.wait_for_timeout(3000)
     return True
-
 
 def SaveApplication(Page, AnswerRecords):
     try:
@@ -234,7 +225,6 @@ def SaveApplication(Page, AnswerRecords):
     except Exception as Error:
         print(f"MongoDB save skipped: {Error}")
 
-
 def ProcessDrawerQuestions(Page):
     Drawer = Page.locator(DrawerSelector).first
     if Drawer.count() == 0:
@@ -246,14 +236,17 @@ def ProcessDrawerQuestions(Page):
     LastQuestion = ""
 
     while Drawer.count() > 0 and Drawer.is_visible():
-        CurrentQuestion = GetCurrentQuestion(Drawer)
+        CurrentQuestion, CurrentOptions = GetCurrentQuestion(Drawer)
+        print("🚀 ~ ProcessDrawerQuestions ~ CurrentOptions:", CurrentOptions)
+        print("🚀 ~ ProcessDrawerQuestions ~ CurrentQuestion:", CurrentQuestion)
         if not CurrentQuestion:
             break
         if CurrentQuestion == LastQuestion:
             Page.wait_for_timeout(500)
             continue
 
-        Answer = GetAnswer(CurrentQuestion, VectorStore, LanguageModel, Drawer)
+        Answer = GetAnswer(CurrentQuestion, CurrentOptions, VectorStore, LanguageModel, Drawer)
+        print("🚀 ~ ProcessDrawerQuestions ~ Answer:", Answer)
         if not Answer or not FillCurrentAnswer(Drawer, Answer):
             return False
         if not SaveCurrentAnswer(Page, Drawer):
@@ -266,3 +259,5 @@ def ProcessDrawerQuestions(Page):
     SaveApplication(Page, AnswerRecords)
     print("🚀 ~ ProcessDrawerQuestions ~ AnswerRecords:", AnswerRecords)
     return True
+
+        

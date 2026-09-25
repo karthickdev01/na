@@ -10,7 +10,7 @@ from root.ApplyQuestionnaire import ProcessDrawerQuestions
 ApplySession = {}
 
 
-def GetBrowserPage(show=True):
+def GetBrowserPage(show=False):
     if ApplySession.get("Page") and not ApplySession["Page"].is_closed():
         return ApplySession
 
@@ -59,7 +59,7 @@ def WaitUntilBrowserClosed():
 
 
 def clickApply(page):
-    time.sleep(1)
+    time.sleep(2)
     ApplyButton = page.get_by_role("button", name="Apply", exact=True)
     if ApplyButton.count() == 0:
         return False
@@ -94,6 +94,8 @@ def autoJobApply(page, job):
 
 
 def initJobAutoApply(jobs):
+    if len(jobs) == 0:
+        return []
     Page = GetBrowserPage()["Page"]
     Results = []
     for Job in jobs or []:

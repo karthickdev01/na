@@ -6,7 +6,7 @@ Fetch recent Naukri job postings, compare them with a resume using an Ollama cha
 
 - Searches Naukri for the configured keyword and experience level.
 - Fetches jobs from the Naukri search API.
-- Extracts resume text from `data/karthick_resume_v02.pdf`.
+- Extracts resume text from `data/resume.pdf`.
 - Scores jobs with the configured Ollama model.
 - Keeps jobs with an ATS score of 70 or higher.
 - Exports serial number, job ID, title, company details, ATS score, ATS reason, and clickable job links.
@@ -75,7 +75,7 @@ For answers that cannot be inferred, use `AUTO_APPLY_ANSWERS` as JSON keyed by q
 Place the resume at:
 
 ```text
-data/karthick_resume_v02.pdf
+data/resume.pdf
 ```
 
 ## Run
@@ -95,7 +95,7 @@ The generated workbook is saved to `exportedData/` with a timestamped filename.
 ├── app.py
 ├── config.py
 ├── data/
-│   └── karthick_resume_v02.pdf
+│   └── resume.pdf
 ├── exportedData/
 ├── requirements.txt
 └── root/

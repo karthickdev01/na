@@ -8,10 +8,10 @@ G_EXPORTED_DATA_PATH = os.path.abspath(os.path.join(ROOT_DIR, ".", "exportedData
 
 # G_MODEL = os.getenv("G_MODEL", "gpt-oss:120b-cloud")
 G_MODEL = "gpt-oss:120b-cloud"
-G_SEARCH_KEY = "full stack developer"
+G_SEARCH_KEY = "gen-ai"
 G_USER_EXPERIENCE = 3
 G_JOB_AGE_DAYS = 1
-G_CUTOFF_TIME_IN_MINUTES = 0.5 * 60
+G_CUTOFF_TIME_IN_MINUTES = 1 * 60
 G_CUTOFF_SCORE = 70
 
 G_MAX_PAGES = 100
